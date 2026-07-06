@@ -6,6 +6,7 @@ Run it (after `pip install -e .`, on the Windows machine running AC):
     python -m driftscore.app
 """
 
+import math
 import time
 
 from driftscore.signals import slip_angle_deg
@@ -31,9 +32,16 @@ def main():
             speed = phys.speedKmh
             slip = 0.0 if speed < SPEED_FLOOR else slip_angle_deg(phys.velocity, phys.heading)
 
+            # TEMP DIAGNOSTIC: print the two raw signals slip is computed
+            # from, so we can work out AC's heading convention on real data.
+            # Revert this commit once the formula is settled.
+            travel_deg = math.degrees(math.atan2(phys.velocity[0], phys.velocity[2]))
+            heading_deg = math.degrees(phys.heading)
+
             # \r keeps rewriting one line so it reads like a live gauge.
             print(
-                f"speed: {speed:6.1f} km/h   |   slip angle: {slip:+7.1f} deg",
+                f"speed {speed:6.1f} | slip {slip:+7.1f} | "
+                f"travel {travel_deg:+7.1f} | heading {heading_deg:+7.1f}",
                 end="\r",
                 flush=True,
             )
