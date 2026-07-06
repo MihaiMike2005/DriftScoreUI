@@ -1,28 +1,24 @@
 """
-Assetto Corsa drift rater - Step 1: the telemetry skeleton.
+Reading Assetto Corsa's physics shared memory.
 
-Goal of this step: get live data flowing and print the two signals drift
-scoring is built on -- SPEED and SLIP ANGLE. No scoring yet, no UI yet.
-Just prove we can read the car and that the numbers move the right way.
+AC continuously writes a C struct into Windows shared memory; this module
+knows that struct's layout and how to snapshot it. All Windows-specific
+code lives HERE -- the rest of the package works on plain Python values
+and runs (and is testable) on any OS.
 
 >>> IMPORTANT <<<
 This talks to Assetto Corsa through Windows shared memory, so it must run on
 the SAME Windows machine where AC is running, with a session actually loaded
 (car on track, not sitting in a menu). It will NOT connect from Linux/macOS
 or from a different PC -- shared memory is local and Windows-only.
-
-Dependencies: none. Everything here is Python standard library.
-Run it with:  python drift_telemetry.py
 """
 
 import ctypes
-import math
 import mmap
-import time
 
 
 # ---------------------------------------------------------------------------
-# 1. Describe the part of AC's physics struct we care about.
+# Describe the part of AC's physics struct we care about.
 #
 # AC continuously writes a large C struct into shared memory. The fields sit
 # at fixed byte offsets, so their ORDER and TYPES must match AC's layout
@@ -75,61 +71,3 @@ def read_physics(mm) -> ACPhysics:
     mm.seek(0)
     raw = mm.read(ctypes.sizeof(ACPhysics))
     return ACPhysics.from_buffer_copy(raw)
-
-
-def slip_angle_deg(velocity, heading) -> float:
-    """
-    The core drift signal: the angle between where the car is POINTING and
-    where it's actually MOVING.
-
-        ~0 deg  -> gripping / going where it points (normal driving)
-        large   -> the back has stepped out, car is sliding sideways (drift)
-
-    We work in the horizontal plane. In AC, x/z are horizontal and y is up,
-    so we ignore velocity[1] (the vertical component).
-    """
-    vx, _vy, vz = velocity[0], velocity[1], velocity[2]
-
-    travel_dir = math.atan2(vx, vz)     # direction of motion, world space
-    angle = travel_dir - heading        # vs. where the nose points
-
-    # Wrap into a clean [-180, 180] range.
-    angle = math.degrees(angle)
-    angle = (angle + 180.0) % 360.0 - 180.0
-    return angle
-
-
-def main():
-    print("Connecting to Assetto Corsa shared memory...")
-    try:
-        mm = open_physics()
-    except Exception as exc:
-        print(f"  Could not connect: {exc}")
-        print("  Is AC running on THIS machine with a session loaded?")
-        return
-
-    print("Connected. Get on track and drive -- Ctrl+C to stop.\n")
-
-    SPEED_FLOOR = 5.0  # km/h. Below this, slip angle is just noise, so zero it.
-
-    try:
-        while True:
-            phys = read_physics(mm)
-            speed = phys.speedKmh
-            slip = 0.0 if speed < SPEED_FLOOR else slip_angle_deg(phys.velocity, phys.heading)
-
-            # \r keeps rewriting one line so it reads like a live gauge.
-            print(
-                f"speed: {speed:6.1f} km/h   |   slip angle: {slip:+7.1f} deg",
-                end="\r",
-                flush=True,
-            )
-            time.sleep(1 / 60)   # ~60 Hz, roughly AC's physics update rate
-    except KeyboardInterrupt:
-        print("\nStopped.")
-    finally:
-        mm.close()
-
-
-if __name__ == "__main__":
-    main()
