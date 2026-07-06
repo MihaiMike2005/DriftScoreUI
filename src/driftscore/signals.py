@@ -23,7 +23,13 @@ def slip_angle_deg(velocity, heading) -> float:
     vx, _vy, vz = velocity[0], velocity[1], velocity[2]
 
     travel_dir = math.atan2(vx, vz)     # direction of motion, world space
-    angle = travel_dir - heading + math.pi   # +pi corrects AC's heading reference (180deg offset)
+
+    # AC measures heading with the OPPOSITE rotation sign to atan2(vx, vz)
+    # (mirrored yaw convention), so the nose direction in our convention is
+    # -heading, and slip = travel_dir - (-heading). Verified against live
+    # telemetry: going straight, travel and heading are equal and opposite.
+    angle = travel_dir + heading
+
     # Wrap into a clean [-180, 180] range.
     angle = math.degrees(angle)
     angle = (angle + 180.0) % 360.0 - 180.0
