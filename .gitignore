@@ -1,0 +1,18 @@
+# Python bytecode caches — regenerated on every run, never belong in history
+__pycache__/
+*.pyc
+
+# Virtual environments — machine-specific, recreated from pyproject.toml
+.venv/
+venv/
+
+# Packaging build artifacts (appear once we pip-install the project)
+build/
+dist/
+*.egg-info/
+
+# Test tooling caches
+.pytest_cache/
+
+# macOS Finder metadata
+.DS_Store
