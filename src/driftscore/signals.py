@@ -23,8 +23,7 @@ def slip_angle_deg(velocity, heading) -> float:
     vx, _vy, vz = velocity[0], velocity[1], velocity[2]
 
     travel_dir = math.atan2(vx, vz)     # direction of motion, world space
-    angle = travel_dir - heading + math.pi      # +pi corrects AC's heading reference(180deg offset)
-
+    angle = travel_dir - heading + math.pi   # +pi corrects AC's heading reference (180deg offset)
     # Wrap into a clean [-180, 180] range.
     angle = math.degrees(angle)
     angle = (angle + 180.0) % 360.0 - 180.0
