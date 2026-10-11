@@ -8,7 +8,7 @@ Run it (after `pip install -e .`, on the Windows machine running AC):
 
 import time
 
-from driftscore.signals import slip_angle_deg
+from driftscore.signals import SLIP_SPEED_FLOOR_KMH, slip_angle_deg
 from driftscore.telemetry import open_physics, read_physics
 
 
@@ -23,13 +23,11 @@ def main():
 
     print("Connected. Get on track and drive -- Ctrl+C to stop.\n")
 
-    SPEED_FLOOR = 5.0  # km/h. Below this, slip angle is just noise, so zero it.
-
     try:
         while True:
             phys = read_physics(mm)
             speed = phys.speedKmh
-            slip = 0.0 if speed < SPEED_FLOOR else slip_angle_deg(phys.velocity, phys.heading)
+            slip = 0.0 if speed < SLIP_SPEED_FLOOR_KMH else slip_angle_deg(phys.velocity, phys.heading)
 
             # \r keeps rewriting one line so it reads like a live gauge.
             print(

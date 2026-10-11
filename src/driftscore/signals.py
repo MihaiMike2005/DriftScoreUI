@@ -9,6 +9,9 @@ source is Windows-only. Drift scoring will live here too, once designed.
 import math
 
 
+SLIP_SPEED_FLOOR_KMH = 5.0   # below this, slip angle is just noise, so callers zero it
+
+
 def slip_angle_deg(velocity, heading) -> float:
     """
     The core drift signal: the angle between where the car is POINTING and
