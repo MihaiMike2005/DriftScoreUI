@@ -54,6 +54,7 @@ POLL_MS = 1                  # beat AC's ~333 Hz physics (3 ms) and keep only ne
 POLL_MS_MIN = 0.1            # --poll-ms floor: 0 spins a CPU core, and 0.001 (seconds typed as ms) comes close
 POLL_MS_MAX = 1000           # --poll-ms cap: far above anything useful (AC writes every 3 ms), so more is a typo
 OUT_DIR = "data/raw"
+T_DECIMALS = 6               # the CSV's t, and the JSON's break times, so logcheck can match them exactly
 FLUSH_EVERY_S = 1.0
 STATUS_EVERY_S = 0.25
 RATE_WINDOW_S = 1.0          # the status line's rows/s is over this window
@@ -70,7 +71,7 @@ def physics_row(phys, t) -> list:
     """One CSV row in COLUMNS order; `t` is seconds since the logger started."""
     v, w, g, s = phys.velocity, phys.localAngularVel, phys.accG, phys.wheelSlip
     return [
-        round(t, 6), phys.packetId,
+        round(t, T_DECIMALS), phys.packetId,
         _f32(phys.speedKmh), _f32(v[0]), _f32(v[1]), _f32(v[2]), _f32(phys.heading),
         _f32(w[0]), _f32(w[1]), _f32(w[2]),
         _f32(g[0]), _f32(g[1]), _f32(g[2]),
@@ -98,6 +99,20 @@ def track_break(wrote, status, rows, left_live) -> tuple:
     return False, left_live or (status != AC_LIVE and rows > 0)
 
 
+def break_statuses(seen, status, left_live) -> list:
+    """The non-live statuses seen since AC left live, by name, in the order first seen.
+
+    `left_live` is track_break's answer for this poll, so the list empties
+    once the break's row is written, and stays empty before the first row.
+    """
+    if not left_live:
+        return []
+    name = status_name(status)
+    if status == AC_LIVE or name in seen:
+        return seen
+    return seen + [name]
+
+
 def session_paths(out_dir, started) -> tuple:
     """CSV and JSON paths for a session started at the datetime `started`."""
     stem = started.strftime("%Y-%m-%d_%H%M%S")
@@ -105,19 +120,22 @@ def session_paths(out_dir, started) -> tuple:
     return out / f"{stem}.csv", out / f"{stem}.json"
 
 
-def session_summary(ts, packet_ids, breaks=()) -> dict:
+def session_summary(ts, packet_ids, breaks=(), statuses=()) -> dict:
     """Rate and gap statistics of the rows written, for the session JSON.
 
     `breaks` holds the indices of rows written after AC left live (pause,
-    replay). The interval before each is left out of every number: a pause
-    isn't a logging gap, and would hide the real ones.
+    replay), and `statuses` the statuses seen before each: one list per
+    break, in the same order. The interval before each is left out of every
+    number: a pause isn't a logging gap, and would hide the real ones.
+    `break_intervals` lists them with the CSV's t on either side, so
+    logcheck can label them.
     """
-    breaks = set(breaks)
+    break_rows = set(breaks)
     steps = {"1": 0, "2": 0, "3+": 0, "reset": 0}
     live_s = longest_gap = 0.0
     intervals = 0
     for i in range(1, len(ts)):
-        if i in breaks:
+        if i in break_rows:
             continue
         gap = ts[i] - ts[i - 1]
         live_s += gap
@@ -133,7 +151,16 @@ def session_summary(ts, packet_ids, breaks=()) -> dict:
         "mean_rows_per_s": round(intervals / live_s, 1) if live_s > 0 else 0.0,
         "packet_id_steps": steps,
         "longest_gap_s": round(longest_gap, 3),
-        "breaks": len(breaks),
+        "breaks": len(break_rows),
+        # strict: a break dropped here would read, in logcheck, as AC live.
+        "break_intervals": [
+            {
+                "start_s": round(ts[i - 1], T_DECIMALS),
+                "end_s": round(ts[i], T_DECIMALS),
+                "statuses": list(names),
+            }
+            for i, names in zip(breaks, statuses, strict=True)
+        ],
     }
 
 
@@ -206,9 +233,10 @@ def record(args, phys_mm, gfx_mm, static):
     print(f"Car: {meta['car']}   Track: {meta['track']}")
     print(f"Logging to {csv_path} -- Ctrl+C to stop.\n")
 
-    ts, packet_ids, breaks = [], [], []
+    ts, packet_ids, breaks, statuses = [], [], [], []
     last_id = None
     left_live = False
+    seen = []
     next_flush = next_status = 0.0
     try:
         while True:
@@ -221,10 +249,12 @@ def record(args, phys_mm, gfx_mm, static):
             if wrote:
                 if row_is_break:
                     breaks.append(len(ts))
+                    statuses.append(seen)
                 writer.writerow(physics_row(phys, t))
                 ts.append(t)
                 packet_ids.append(phys.packetId)
                 last_id = phys.packetId
+            seen = break_statuses(seen, status, left_live)
 
             if t >= next_flush:
                 csv_file.flush()
@@ -246,7 +276,7 @@ def record(args, phys_mm, gfx_mm, static):
         print("\nStopped.")
     finally:
         csv_file.close()
-        meta["summary"] = summary = session_summary(ts, packet_ids, breaks)
+        meta["summary"] = summary = session_summary(ts, packet_ids, breaks, statuses)
         _write_json(json_path, meta)
 
     print(

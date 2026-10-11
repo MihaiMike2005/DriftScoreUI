@@ -13,6 +13,7 @@ import pytest
 
 from driftscore.logger import (
     COLUMNS,
+    break_statuses,
     main,
     parse_poll_ms,
     physics_row,
@@ -97,6 +98,34 @@ def test_track_break(wrote, status, rows, left_live, expected):
     assert track_break(wrote, status, rows, left_live) == expected
 
 
+@pytest.mark.parametrize(
+    "polls, expected",
+    [
+        ([AC_PAUSE, AC_PAUSE, AC_LIVE], ["PAUSE"]),
+        ([AC_REPLAY, AC_LIVE], ["REPLAY"]),
+        ([AC_PAUSE, AC_REPLAY, AC_PAUSE, AC_LIVE], ["PAUSE", "REPLAY"]),   # each name once, in order
+        ([AC_OFF, AC_LIVE], ["OFF"]),
+    ],
+)
+def test_break_statuses(polls, expected):
+    # Polls after some rows were written, up to the first row after the
+    # break: run as record() runs them, the statuses seen are the break's.
+    seen, left_live = [], False
+    for status in polls:
+        _, left_live = track_break(False, status, 5, left_live)
+        seen = break_statuses(seen, status, left_live)
+    row_is_break, left_live = track_break(True, AC_LIVE, 5, left_live)
+    assert row_is_break
+    assert seen == expected
+    assert break_statuses(seen, AC_LIVE, left_live) == []   # emptied once the break's row is written
+
+
+def test_break_statuses_before_first_row():
+    # Paused before any row: no break, so nothing to collect.
+    _, left_live = track_break(False, AC_PAUSE, 0, False)
+    assert break_statuses([], AC_PAUSE, left_live) == []
+
+
 @pytest.mark.parametrize("text, value", [("0.1", 0.1), ("1", 1.0), ("1000", 1000.0)])
 def test_parse_poll_ms(text, value):
     assert parse_poll_ms(text) == value
@@ -155,13 +184,41 @@ def test_session_summary_leaves_out_breaks_but_not_hiccups():
     # is out of every number; the hiccup still shows as the longest gap.
     ts = [0.00, 0.01, 0.02, 0.32, 2.32, 2.33]
     ids = [1, 2, 3, 4, 500, 501]
-    summary = session_summary(ts, ids, breaks=[4])
+    summary = session_summary(ts, ids, breaks=[4], statuses=[["PAUSE"]])
     assert summary["rows"] == 6
     assert summary["duration_s"] == pytest.approx(0.33)
     assert summary["mean_rows_per_s"] == pytest.approx(12.1)
     assert summary["packet_id_steps"] == {"1": 4, "2": 0, "3+": 0, "reset": 0}
     assert summary["longest_gap_s"] == pytest.approx(0.3)
     assert summary["breaks"] == 1
+
+
+def test_session_summary_lists_break_intervals():
+    # Unrounded perf_counter times, as record() keeps them. Each break's
+    # start and end must equal the CSV's t on either side of it, exactly.
+    ts = [0.0, 0.0101234567, 2.0203456789, 2.0304, 5.1123456789, 5.12]
+    ids = [1, 2, 3, 4, 5, 6]
+    summary = session_summary(ts, ids, breaks=[2, 4], statuses=[["PAUSE"], ["PAUSE", "REPLAY"]])
+    csv_t = [physics_row(ACPhysics(), t)[0] for t in ts]
+    assert summary["breaks"] == 2
+    assert summary["break_intervals"] == [
+        {"start_s": csv_t[1], "end_s": csv_t[2], "statuses": ["PAUSE"]},
+        {"start_s": csv_t[3], "end_s": csv_t[4], "statuses": ["PAUSE", "REPLAY"]},
+    ]
+    assert summary["break_intervals"][0]["end_s"] == 2.020346
+
+
+@pytest.mark.parametrize(
+    "breaks, statuses",
+    [
+        ([2], []),                       # a break without its statuses
+        ([2], [["PAUSE"], ["REPLAY"]]),  # statuses without their break
+    ],
+)
+def test_session_summary_refuses_unpaired_breaks(breaks, statuses):
+    # Silently dropping one would leave logcheck reading that pause as AC live.
+    with pytest.raises(ValueError):
+        session_summary([0.0, 0.01, 2.0, 2.01], [1, 2, 3, 4], breaks, statuses)
 
 
 def test_session_summary_counts_reset():
