@@ -52,9 +52,6 @@ stop, the JSON gets a summary: rows, live duration, rows/s, packetId steps,
 the longest gap and the number of breaks (pause or replay). Breaks are left
 out of the duration, rate and gap, so a pause can't hide a logging hiccup.
 
-Use Python 3.11+ on the AC PC: on Windows, older versions round `time.sleep`
-up to ~15.6 ms, which caps the logging rate.
-
 **Before**
 
 1. Car on track: a session loaded, not sitting in a menu.

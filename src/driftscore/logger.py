@@ -17,7 +17,6 @@ import bisect
 import csv
 import json
 import platform
-import sys
 import time
 from contextlib import ExitStack
 from datetime import datetime
@@ -276,12 +275,6 @@ def main(argv=None):
         help=f"poll interval in milliseconds, {POLL_MS_MIN} to {POLL_MS_MAX} (default: {POLL_MS})",
     )
     args = parser.parse_args(argv)
-
-    if sys.platform == "win32" and sys.version_info < (3, 11):
-        print(
-            "Warning: before Python 3.11, time.sleep on Windows rounds up to "
-            "~15.6 ms ticks, which caps the logging rate. Use Python 3.11+.\n"
-        )
 
     print("Connecting to Assetto Corsa shared memory...")
     with ExitStack() as pages:
