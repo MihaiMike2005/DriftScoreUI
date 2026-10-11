@@ -14,5 +14,8 @@ dist/
 # Test tooling caches
 .pytest_cache/
 
+# The logger's default output — raw recordings stay out of git
+data/raw/
+
 # macOS Finder metadata
 .DS_Store
