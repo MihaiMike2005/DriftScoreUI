@@ -5,6 +5,7 @@ These run anywhere -- no Assetto Corsa, no Windows, no shared memory. The
 poll loop itself stays untested, like app.py.
 """
 
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -12,14 +13,17 @@ import pytest
 
 from driftscore.logger import (
     COLUMNS,
+    main,
+    parse_poll_ms,
     physics_row,
     session_paths,
     session_summary,
     should_write,
     status_line,
     status_name,
+    track_break,
 )
-from driftscore.telemetry import AC_LIVE, AC_PAUSE, AC_REPLAY, ACPhysics
+from driftscore.telemetry import AC_LIVE, AC_OFF, AC_PAUSE, AC_REPLAY, ACPhysics
 
 
 def test_physics_row_columns_and_values():
@@ -74,6 +78,51 @@ def test_physics_row_trims_float32_noise():
 )
 def test_should_write(packet_id, last_packet_id, status, expected):
     assert should_write(packet_id, last_packet_id, status) is expected
+
+
+@pytest.mark.parametrize(
+    "wrote, status, rows, left_live, expected",
+    [
+        (True, AC_LIVE, 5, False, (False, False)),     # ordinary live row
+        (False, AC_LIVE, 5, False, (False, False)),    # duplicate packet: a hiccup, not a break
+        (False, AC_PAUSE, 5, False, (False, True)),    # paused after rows: next row is a break
+        (False, AC_REPLAY, 5, False, (False, True)),
+        (False, AC_OFF, 5, False, (False, True)),
+        (False, AC_PAUSE, 0, False, (False, False)),   # paused before the first row: nothing to leave out
+        (False, AC_LIVE, 5, True, (False, True)),      # resumed, packetId not moved yet: still waiting
+        (True, AC_LIVE, 5, True, (True, False)),       # first row after the pause is the break
+    ],
+)
+def test_track_break(wrote, status, rows, left_live, expected):
+    assert track_break(wrote, status, rows, left_live) == expected
+
+
+@pytest.mark.parametrize("text, value", [("0.1", 0.1), ("1", 1.0), ("1000", 1000.0)])
+def test_parse_poll_ms(text, value):
+    assert parse_poll_ms(text) == value
+
+
+@pytest.mark.parametrize("text", ["0", "0.001", "0.09", "-1", "nan", "inf", "1000.5", "1e20", "abc"])
+def test_parse_poll_ms_refuses(text):
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_poll_ms(text)
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("-1", "--poll-ms: must be from 0.1 to 1000, got -1"),
+        ("abc", "--poll-ms: not a number: 'abc'"),
+    ],
+)
+def test_bad_poll_ms_stops_before_connecting(capsys, text, message):
+    # argparse exits before main connects to AC, so no files get created.
+    with pytest.raises(SystemExit) as exc:
+        main(["--kind", "natural", "--poll-ms", text])
+    assert exc.value.code == 2
+    out, err = capsys.readouterr()
+    assert "Connecting" not in out
+    assert message in err
 
 
 @pytest.mark.parametrize(

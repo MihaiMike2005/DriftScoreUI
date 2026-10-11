@@ -52,6 +52,8 @@ COLUMNS = [
 ]
 
 POLL_MS = 1                  # beat AC's ~333 Hz physics (3 ms) and keep only new packetIds: the rate is AC's, not ours
+POLL_MS_MIN = 0.1            # --poll-ms floor: 0 spins a CPU core, and 0.001 (seconds typed as ms) comes close
+POLL_MS_MAX = 1000           # --poll-ms cap: far above anything useful (AC writes every 3 ms), so more is a typo
 OUT_DIR = "data/raw"
 FLUSH_EVERY_S = 1.0
 STATUS_EVERY_S = 0.25
@@ -83,6 +85,18 @@ def should_write(packet_id, last_packet_id, status) -> bool:
     # Polling faster than AC writes sees each packet several times. `!=`
     # rather than `>`, so a packetId that restarts still gets logged.
     return status == AC_LIVE and packet_id != last_packet_id
+
+
+def track_break(wrote, status, rows, left_live) -> tuple:
+    """(row_is_break, left_live) after one poll, for session_summary's `breaks`.
+
+    `wrote` is should_write's answer for this poll, `rows` the count written
+    before it. A row is a break if AC left live (pause, replay) since the
+    last row; before the first row there is no interval to leave out.
+    """
+    if wrote:
+        return left_live, False
+    return False, left_live or (status != AC_LIVE and rows > 0)
 
 
 def session_paths(out_dir, started) -> tuple:
@@ -142,6 +156,23 @@ def status_line(t, packet_id, rows, rate, status, speed_kmh, slip_deg) -> str:
     )
 
 
+def parse_poll_ms(text) -> float:
+    """argparse type for --poll-ms, so a typo stops the logger before it creates any file.
+
+    0 would spin a CPU core, and a tiny value like 0.001 come close. Below 0,
+    or too big for time.sleep (inf, 1e20), would crash the first sleep, after
+    the CSV and JSON already exist.
+    """
+    try:
+        value = float(text)
+    except ValueError:
+        # Otherwise argparse says "invalid parse_poll_ms value".
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not POLL_MS_MIN <= value <= POLL_MS_MAX:   # chained comparisons are False for nan, so it's refused too
+        raise argparse.ArgumentTypeError(f"must be from {POLL_MS_MIN} to {POLL_MS_MAX}, got {text}")
+    return value
+
+
 def _write_json(path, meta):
     path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
@@ -186,16 +217,15 @@ def record(args, phys_mm, gfx_mm, static):
             phys = read_physics(phys_mm)
             t = time.perf_counter() - t0
 
-            if should_write(phys.packetId, last_id, status):
-                if left_live:
+            wrote = should_write(phys.packetId, last_id, status)
+            row_is_break, left_live = track_break(wrote, status, len(ts), left_live)
+            if wrote:
+                if row_is_break:
                     breaks.append(len(ts))
-                    left_live = False
                 writer.writerow(physics_row(phys, t))
                 ts.append(t)
                 packet_ids.append(phys.packetId)
                 last_id = phys.packetId
-            elif status != AC_LIVE and ts:
-                left_live = True
 
             if t >= next_flush:
                 csv_file.flush()
@@ -242,8 +272,8 @@ def main(argv=None):
     parser.add_argument("--setup", default="", help='setup notes, e.g. "TC off, 2nd gear"')
     parser.add_argument("--out", default=OUT_DIR, help=f"output folder (default: {OUT_DIR})")
     parser.add_argument(
-        "--poll-ms", type=float, default=POLL_MS,
-        help=f"poll interval in milliseconds (default: {POLL_MS})",
+        "--poll-ms", type=parse_poll_ms, default=POLL_MS,
+        help=f"poll interval in milliseconds, {POLL_MS_MIN} to {POLL_MS_MAX} (default: {POLL_MS})",
     )
     args = parser.parse_args(argv)
 
