@@ -51,7 +51,7 @@ COLUMNS = [
     "wheel_slip_fl", "wheel_slip_fr", "wheel_slip_rl", "wheel_slip_rr",
 ]
 
-POLL_MS = 5                  # poll fast and keep only new packetIds: the rate is AC's, not ours
+POLL_MS = 1                  # beat AC's ~333 Hz physics (3 ms) and keep only new packetIds: the rate is AC's, not ours
 OUT_DIR = "data/raw"
 FLUSH_EVERY_S = 1.0
 STATUS_EVERY_S = 0.25

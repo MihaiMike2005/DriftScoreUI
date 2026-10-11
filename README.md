@@ -44,7 +44,7 @@ python -m driftscore.logger --kind natural --setup "TC off, 2nd gear"
 | `--kind` | Required. `natural` (holding drifts at the limit) or `deliberate` (trying to spin) |
 | `--setup` | Free-text setup notes, saved in the JSON |
 | `--out` | Output folder (default `data/raw`, relative to where you run the logger) |
-| `--poll-ms` | Poll interval in milliseconds (default 5) |
+| `--poll-ms` | Poll interval in milliseconds (default 1) |
 
 It writes `YYYY-MM-DD_HHMMSS.csv` and `.json` into the output folder. Run it
 from the repo root and that's `data/raw/` here, which git ignores. When you
